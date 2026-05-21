@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ad-cli"
+version = "0.1.0"
+description = "Android automation CLI — ADB + scrcpy + AI analysis"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "Pillow>=9.0.0",
+    "argcomplete>=3.0.0",
+]
+
+[project.optional-dependencies]
+mirror = [
+    # scrcpy-client 已内嵌至 src/subsystems/mirror/scrcpy/，无需外部依赖
+    "av>=12,<13",
+    "adbutils>=2,<3",
+    "opencv-python>=4.8.0",
+    "numpy>=2,<3",
+    "PySide6>=6.4.0",
+]
+all = ["ad-cli[mirror]"]
+
+[project.scripts]
+ad-cli = "ad_cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"

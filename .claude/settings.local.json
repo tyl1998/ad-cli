@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(adb shell *)",
+      "Bash(adb pull *)",
+      "Read(//private/tmp/**)",
+      "Bash(cp /tmp/starbucks_ui_tree.json /Users/atan/Desktop/work/vscode_debug/ad-cli/starbucks_ui_tree.json && ls -lh /Users/atan/Desktop/work/vscode_debug/ad-cli/starbucks_ui_tree.json)",
+      "Bash(python3)"
+    ],
+    "additionalDirectories": [
+      "/private/tmp"
+    ]
+  }
+}

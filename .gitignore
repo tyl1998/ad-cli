@@ -1,0 +1,29 @@
+# 虚拟环境
+.venv/
+
+# 运行时产物
+data/
+report/
+screenshot/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+
+# 构建
+dist/
+build/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
+

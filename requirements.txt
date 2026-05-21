@@ -1,0 +1,16 @@
+# ────────────────────────────────────────────────────────
+# ad-cli 依赖清单
+# 运行环境：.venv (Python 3.10.1)
+# ────────────────────────────────────────────────────────
+
+# 核心功能（main CLI，系统 python3 可用）
+Pillow>=9.0.0               # pHash 截图指纹（cache/phash.py）；截图处理
+argcomplete>=3.0.0          # Tab 补全支持
+
+# 投屏功能（mirror 命令，需 .venv）
+# scrcpy-client 已内嵌至 src/subsystems/mirror/scrcpy/
+av>=12,<13                  # scrcpy 视频解码（有 macOS arm64 预编译 wheel）
+adbutils>=2,<3              # ADB 工具库
+opencv-python>=4.8.0        # JPEG 帧编码、window 模式锐化滤镜
+numpy>=2,<3                 # scrcpy Client 内部帧数组操作
+PySide6>=6.4.0              # window 模式 GUI（QMainWindow / QLabel / QTimer 等）
