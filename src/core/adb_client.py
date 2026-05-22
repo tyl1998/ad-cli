@@ -148,11 +148,37 @@ class ADBClient:
 
     def input_text(self, text: str):
         """输入文字（需要先 tap 聚焦输入框）"""
-        # 转义 Android shell 敏感字符
+        if text == "":
+            return
+
+        if not self._can_use_input_text(text):
+            self._paste_text(text)
+            return
+
         escaped = text.replace(" ", "%s")
         for ch in "&<>|;$`\"'()\\":
             escaped = escaped.replace(ch, f"\\{ch}")
-        self.shell("input", "text", escaped)
+        try:
+            self.shell("input", "text", escaped)
+        except ADBError as exc:
+            if "NullPointerException" not in str(exc):
+                raise
+            self._paste_text(text)
+
+    def _can_use_input_text(self, text: str) -> bool:
+        """Android input text maps chars to key events, so keep it to simple ASCII."""
+        return all(ch == " " or 0x21 <= ord(ch) <= 0x7E for ch in text)
+
+    def _paste_text(self, text: str):
+        """输入 Unicode 文本：写入剪贴板后触发粘贴。"""
+        try:
+            self.shell("cmd", "clipboard", "set", "text", text)
+            self.shell("input", "keyevent", "279")
+        except ADBError as exc:
+            raise ADBError(
+                "无法通过 adb input text 输入该内容，剪贴板粘贴 fallback 也失败；"
+                f"原始文本可能包含设备不支持的字符。fallback 错误：{exc}"
+            )
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300):
         """滑动"""
