@@ -351,3 +351,18 @@ def cmd_keyevent(adb: ADBClient, key: str) -> dict:
     adb.keyevent(key)
     adb.wait_stable()
     return ok("keyevent", key=key)
+
+
+def cmd_home(adb: ADBClient) -> dict:
+    """模拟 Home 键，等待页面稳定后返回。"""
+    try:
+        page_before = adb.get_current_page()
+    except Exception:
+        page_before = {}
+    adb.keyevent("home")
+    adb.wait_stable()
+    try:
+        page_after = adb.get_current_page()
+    except Exception:
+        page_after = {}
+    return ok("home", page_before=page_before, page_after=page_after)

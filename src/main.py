@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from adb_client import ADBClient, ADBError
 from output import ok, error, exit_with, err_disconnected, ReportError
 from commands.perception import cmd_dump, cmd_find, cmd_screenshot, cmd_exists, cmd_get_text, cmd_wait
-from commands.action import cmd_tap, cmd_input, cmd_scroll, cmd_back, cmd_keyevent
+from commands.action import cmd_tap, cmd_input, cmd_scroll, cmd_back, cmd_keyevent, cmd_home
+from commands.agent_cmd import cmd_agent_install, cmd_agent_setup, cmd_agent_status, cmd_agent_diagnose
 from commands.app import cmd_app_list, cmd_app_info, cmd_app_launch, cmd_app_stop, cmd_app_install
 from commands.system import cmd_device_info, cmd_page_info
 from commands.report_cmd import (
@@ -205,12 +206,19 @@ def build_parser() -> argparse.ArgumentParser:
     # ── 页面感知 ──────────────────────────────────────────────
     dp = sub.add_parser("dump", help="获取当前页面 UI 元素（compact 模式）")
     dp.add_argument("--screenshot", action="store_true", help="同时截图")
+    dp.add_argument("--ocr", action="store_true",
+                    help="强制触发 OCR 识别（需要 Agent App，适用于 WebView / Flutter 等）")
+    dp.add_argument("--agent-port", type=int, default=None, metavar="PORT",
+                    help="通过 Agent HTTP API 采集（指定端口，默认 8899）；"
+                         "不指定则走传统 uiautomator dump")
 
     f = sub.add_parser("find", help="按 id/text/class 查找元素")
     f.add_argument("query", help="查询词（id / text / class name）")
 
     ss = sub.add_parser("screenshot", help="截图保存到 ./screenshot/")
     ss.add_argument("path", nargs="?", metavar="PATH", help="自定义保存路径（可选）")
+    ss.add_argument("--agent-port", type=int, default=None, metavar="PORT",
+                    help="通过 Agent HTTP API 截图（适用于 ADB 截图不可用的设备）")
 
     ex = sub.add_parser("exists", help="判断元素是否存在，返回 true/false")
     ex.add_argument("query", help="查询词")
@@ -242,8 +250,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("back", help="模拟返回键")
 
+    sub.add_parser("home", help="模拟 Home 键，回到桌面")
+
     ke = sub.add_parser("keyevent", help="发送系统按键（home/back/enter/del/menu 等）")
     ke.add_argument("key", help="按键名称，例如 home / back / enter")
+
+    # ── Agent App 管理 ────────────────────────────────────────
+    ag = sub.add_parser("agent", help="Agent App 管理：install / setup / status / diagnose",
+                        formatter_class=argparse.RawDescriptionHelpFormatter,
+                        description=(
+                            "首次使用:\n"
+                            "  ad-cli agent install   # 安装\n"
+                            "  ad-cli agent setup     # 确认就绪\n"
+                            "日常使用:\n"
+                            "  ad-cli agent diagnose  # 出现问题时排查\n"
+                            "  ad-cli agent setup     # 每次 USB 重连后执行"
+                        ))
+    ag_sub = ag.add_subparsers(dest="action", required=True, metavar="<subcommand>")
+
+    ag_install = ag_sub.add_parser("install", help="下载并安装 Agent APK，引导开启无障碍服务")
+    ag_install.add_argument("--version", metavar="VERSION", help="指定版本号（默认最新）")
+    ag_install.add_argument("--force", action="store_true", help="强制重新下载 APK")
+
+    ag_setup = ag_sub.add_parser("setup", help="端口转发 + 服务就绪确认")
+    ag_setup.add_argument("--port", type=int, default=8899, help="Agent HTTP 端口（默认 8899）")
+    ag_setup.add_argument("--timeout", type=int, default=60, help="等待就绪超时秒数（默认 60）")
+
+    ag_status = ag_sub.add_parser("status", help="查询 Agent 运行状态")
+    ag_status.add_argument("--port", type=int, default=8899, help="Agent HTTP 端口（默认 8899）")
+
+    ag_sub.add_parser("diagnose", help="一键排查 Agent 未就绪的原因并给出修复建议")
 
     # ── 投屏 ──────────────────────────────────────────────────
     mir = sub.add_parser("mirror", help="实时投屏 Android 设备",
@@ -346,18 +382,51 @@ _ADB_COMMANDS = {
     "device":     lambda adb, args: cmd_device_info(adb),
     "page":       lambda adb, args: cmd_page_info(adb),
     "app":        lambda adb, args: _dispatch_app(adb, args),
-    "dump":       lambda adb, args: cmd_dump(adb, getattr(args, "screenshot", False)),
+    "dump":       lambda adb, args: cmd_dump(
+                      adb,
+                      getattr(args, "screenshot", False),
+                      force_ocr=getattr(args, "ocr", False),
+                      agent_port=getattr(args, "agent_port", None),
+                  ),
     "find":       lambda adb, args: cmd_find(adb, args.query),
-    "screenshot": lambda adb, args: cmd_screenshot(adb, getattr(args, "path", None)),
+    "screenshot": lambda adb, args: cmd_screenshot(
+                      adb,
+                      getattr(args, "path", None),
+                      agent_port=getattr(args, "agent_port", None),
+                  ),
     "tap":        lambda adb, args: cmd_tap(adb, args),
     "input":      lambda adb, args: cmd_input(adb, args),
     "scroll":     lambda adb, args: cmd_scroll(adb, args.direction),
     "back":       lambda adb, args: cmd_back(adb),
+    "home":       lambda adb, args: cmd_home(adb),
     "keyevent":   lambda adb, args: cmd_keyevent(adb, args.key),
     "exists":     lambda adb, args: cmd_exists(adb, args.query),
     "get-text":   lambda adb, args: cmd_get_text(adb, args.query),
     "wait":       lambda adb, args: cmd_wait(adb, args.query, args.timeout),
 }
+
+
+def _dispatch_agent(args) -> dict:
+    serial = getattr(args, "serial", None)
+    port = getattr(args, "port", 8899)
+    if args.action == "install":
+        return cmd_agent_install(
+            serial=serial,
+            version=getattr(args, "version", None),
+            force=getattr(args, "force", False),
+            port=port,
+        )
+    if args.action == "setup":
+        return cmd_agent_setup(
+            serial=serial,
+            port=port,
+            timeout=getattr(args, "timeout", 60),
+        )
+    if args.action == "status":
+        return cmd_agent_status(serial=serial, port=port)
+    if args.action == "diagnose":
+        return cmd_agent_diagnose(serial=serial, port=port)
+    return error("agent", "UNKNOWN_COMMAND", f"unknown: {args.action}")
 
 
 def main():
@@ -380,6 +449,23 @@ def main():
                 exit_with(_cmd_mirror_stop())
             _cmd_mirror(args)
             return
+        elif args.group == "agent":
+            result = _dispatch_agent(args)
+        elif args.group == "dump" and getattr(args, "agent_port", None) is not None:
+            # Agent 模式 dump 不需要 ADB 连接
+            result = cmd_dump(
+                None,  # adb 未使用
+                getattr(args, "screenshot", False),
+                force_ocr=getattr(args, "ocr", False),
+                agent_port=args.agent_port,
+            )
+        elif args.group == "screenshot" and getattr(args, "agent_port", None) is not None:
+            # Agent 模式 screenshot 不需要 ADB 连接
+            result = cmd_screenshot(
+                None,  # adb 未使用
+                getattr(args, "path", None),
+                agent_port=args.agent_port,
+            )
         elif args.group == "replay":
             result = _cmd_replay(args)
         elif args.group == "cache":
