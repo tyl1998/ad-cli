@@ -35,6 +35,36 @@ page info  →  find / exists / wait  →  dump  →  dump --screenshot  →  sc
 
 原则：**先用最轻量的命令；结构化信息不足时才升级截图。**
 
+### Agent 模式快速骨架
+
+适用于 **WebView / 浏览器 / Flutter / ADB dump 文本不足** 的页面。
+
+```bash
+ad-cli agent install
+ad-cli agent status
+ad-cli agent setup
+ad-cli agent diagnose
+ad-cli dump --agent-port 8899
+ad-cli dump --ocr --agent-port 8899
+ad-cli screenshot --agent-port 8899
+```
+
+已验证可用的 Agent 命令：
+
+- `ad-cli agent install`
+- `ad-cli agent status`
+- `ad-cli agent setup`
+- `ad-cli agent diagnose`
+- `ad-cli dump --agent-port 8899`
+- `ad-cli dump --ocr --agent-port 8899`
+- `ad-cli screenshot --agent-port 8899`
+
+经验结论：
+
+- 普通 `dump --agent-port` 常见返回 `mode=native` 或 `mode=native+webview`
+- `dump --ocr --agent-port` 在 WebView/浏览器页面可补出 OCR 文本，常见返回 `mode=native+ocr`
+- 若刚 `setup` 完立刻首次请求偶发失败，先重试 1 次 `dump --agent-port 8899`
+
 ---
 
 ## L1 · 行为守则（强制规则）
@@ -144,6 +174,20 @@ App 自定义隐私协议弹窗：
   - 是否有弹窗、遮挡、加载动画
   - 元素视觉位置 → 估算 `--xy` 坐标点击（适合 WebView / 图片化页面）
 
+当页面是 **WebView / 浏览器 / Flutter** 时，优先补一轮 Agent：
+
+```bash
+ad-cli dump --agent-port 8899
+ad-cli dump --ocr --agent-port 8899
+```
+
+判断依据：
+
+- `dump` 返回文本明显过少
+- `page info` 显示浏览器 / WebView 容器页面
+- Agent 返回 `has_web_view: true`
+- 需要识别页面正文、卡片文案、网页标题等 ADB dump 不稳定文本
+
 #### tap 定位 fallback 顺序
 
 ```
@@ -233,6 +277,13 @@ page info                        # 确认起始页面
 find / exists / wait             # 轻量定位
     ↓
 dump [--screenshot]              # 信息不足时读取元素
+    ↓
+[WebView/浏览器时]
+agent setup
+    ↓
+dump --agent-port 8899
+    ↓
+dump --ocr --agent-port 8899
     ↓
 tap / input / scroll             # 执行操作
     ↓
@@ -362,11 +413,113 @@ ad-cli report note "支付页留证" --screenshot
 
 > `returned` ≤ 5 时高度怀疑弹窗遮挡，执行规则 B
 
+#### `dump --agent-port <port>`
+通过 Agent HTTP API 获取当前页面元素。
+
+- 适合 WebView / 浏览器 / Flutter / 原生 dump 文本不足页面
+- 已验证 `8899` 端口可用
+- 常见返回：
+  - `mode: "native"`
+  - `mode: "native+webview"`
+
+关键字段：
+
+- `source: "agent"`
+- `has_web_view`
+- `native_count`
+- `ocr_count`
+
+#### `dump --ocr --agent-port <port>`
+在 Agent 模式下强制触发 OCR 识别。
+
+- 适合网页正文、图片化文本、网页标题、卡片文案识别
+- 已验证在浏览器页面可补出 OCR 文本
+- 常见返回：
+  - `mode: "native+ocr"`
+  - `ocr_count > 0`
+
+使用建议：
+
+```bash
+ad-cli dump --agent-port 8899
+ad-cli dump --ocr --agent-port 8899
+```
+
+对比两次返回，重点看：
+
+- `mode`
+- `has_web_view`
+- `ocr_count`
+- OCR 新增文本项（`source: "ocr"`）
+
 #### `find <query>`
 精确查找元素；找不到时返回模糊候选（`matched: "fuzzy"`）；完全找不到返回 `ELEMENT_NOT_FOUND`。
 
 #### `screenshot [path]`
 手动截图，保存到 `./screenshot/`。
+
+#### `screenshot --agent-port <port>`
+通过 Agent HTTP API 截图。
+
+- 适用于 ADB 截图不稳定、需要与 Agent dump 同链路取证的场景
+- 已验证 `ad-cli screenshot --agent-port 8899` 可用
+
+---
+
+### Agent 管理类
+
+#### `agent status`
+查看 Agent 服务状态。
+
+重点字段：
+
+- `forward_ready`
+- `http_server_ready`
+- `service_running`
+- `accessibility_enabled`
+
+#### `agent setup`
+执行端口转发并确认 Agent 服务 ready。
+
+推荐在以下场景先执行：
+
+- 开始使用 Agent 前
+- USB 重连后
+- `dump --agent-port` / `screenshot --agent-port` 首次失败时
+
+#### `agent install`
+下载并安装 Agent APK，并引导开启无障碍服务。
+
+适用场景：
+
+- 新设备首次接入
+- 设备上尚未安装 Agent
+- 需要重新安装或升级 Agent
+
+常用形式：
+
+```bash
+ad-cli agent install
+ad-cli agent install --force
+```
+
+#### `agent diagnose`
+一键排查 Agent 未就绪原因，并给出修复建议。
+
+适用场景：
+
+- `agent setup` 失败
+- `agent status` 显示 `http_server_ready=false`
+- `dump --agent-port` / `screenshot --agent-port` 持续失败
+
+重点检查项：
+
+- ADB 是否可用
+- 设备是否连接
+- Agent APK 是否已安装
+- 无障碍服务是否开启
+- 端口转发是否成功
+- HTTP 服务是否就绪
 
 ---
 

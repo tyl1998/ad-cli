@@ -262,6 +262,10 @@ def cmd_tap(adb: ADBClient, args) -> dict:
 # ── cmd_input ────────────────────────────────────────────────────
 
 def cmd_input(adb: ADBClient, args) -> dict:
+    agent_port = getattr(args, "agent_port", None)
+    if agent_port is not None:
+        return _cmd_input_agent(adb, args, agent_port)
+
     query = args.id or args.text
     elem = _resolve_element(adb, id_val=args.id, text_val=args.text)
     if not elem:
@@ -294,6 +298,65 @@ def cmd_input(adb: ADBClient, args) -> dict:
                   "kind": "structured-id" if args.id else "structured-text",
                   "selector": {"id": args.id} if args.id else {"text": args.text},
                   "reason": None, "fallback": False,
+              },
+              page_before=page_before,
+              page_after=page_after)
+
+
+def _cmd_input_agent(adb: ADBClient | None, args, agent_port: int) -> dict:
+    from core.agent_client import AgentClient, AgentError
+
+    try:
+        page_before = adb.get_current_page() if adb else {}
+    except Exception:
+        page_before = {}
+
+    selector_value = args.id or args.text
+    selector_type = "id" if args.id else "text" if args.text else None
+    client = AgentClient(port=agent_port)
+
+    try:
+        if selector_type and selector_value:
+            response = client.input_by_selector(selector_type, selector_value, args.value)
+            if not response.get("success"):
+                click_response = client.click_by_selector(selector_type, selector_value)
+                if not click_response.get("success"):
+                    return error(
+                        "input",
+                        "AGENT_ERROR",
+                        response.get("error", "Agent 输入失败"),
+                        hint="请先执行 ad-cli agent setup 确认 Agent 服务就绪",
+                    )
+                response = client.input_text(args.value)
+        else:
+            response = client.input_text(args.value)
+    except AgentError as exc:
+        return error("input", "AGENT_ERROR", str(exc),
+                     hint="请先执行 ad-cli agent setup 确认 Agent 服务就绪")
+
+    if not response.get("success"):
+        return error("input", "AGENT_ERROR", response.get("error", "Agent 输入失败"))
+
+    try:
+        page_after = adb.get_current_page() if adb else {}
+    except Exception:
+        page_after = {}
+
+    target = {}
+    if args.id:
+        target["id"] = args.id
+    if args.text:
+        target["text"] = args.text
+
+    return ok("input",
+              target=target,
+              value=args.value,
+              source="agent",
+              interaction={
+                  "kind": "agent-selector" if selector_type else "agent-direct",
+                  "selector": {"id": args.id} if args.id else {"text": args.text} if args.text else {},
+                  "reason": None,
+                  "fallback": False,
               },
               page_before=page_before,
               page_after=page_after)

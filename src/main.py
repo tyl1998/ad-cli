@@ -243,6 +243,8 @@ def build_parser() -> argparse.ArgumentParser:
     inp.add_argument("--id", metavar="ID", help="按资源 ID 定位输入框")
     inp.add_argument("--text", metavar="TEXT", help="按文字定位输入框")
     inp.add_argument("--value", required=True, metavar="VALUE", help="要输入的文字")
+    inp.add_argument("--agent-port", type=int, default=None, metavar="PORT",
+                    help="通过 Agent HTTP API 输入（适用于 ADB 输入不稳定或 WebView 场景）")
 
     sc = sub.add_parser("scroll", help="滑动页面")
     sc.add_argument("--direction", required=True, choices=["up", "down", "left", "right"],
