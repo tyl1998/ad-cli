@@ -1,4 +1,33 @@
+---
+name: ad-cli-run
+description: Use when automating Android apps through ad-cli, especially for UI inspection, element interaction, report-driven case execution, popup handling, or Agent plus OCR fallback on WebView, browser, and Flutter pages.
+---
+
 # ad-cli Skill
+
+## Skill 元信息
+
+- 技能名：`ad-cli-run`
+- 适用场景：通过 `ad-cli` 执行 Android 自动化、页面感知、元素操作、报告记录、WebView/浏览器/Flutter 页面识别
+- 推荐安装方式：优先放在当前项目的 `.codex/skills/`；需要跨项目复用时再安装到全局 skills 目录
+
+## 安装说明
+
+先安装 `ad-cli` 项目，再使用这个 skill。
+
+```bash
+git clone https://github.com/tyl1998/ad-cli.git
+cd ad-cli
+bash install.sh
+```
+
+Windows 直接执行：
+
+```bat
+install.bat
+```
+
+详细安装说明看仓库里的 `INSTALL.md`。
 
 > **AI 阅读顺序：L0 → L1 → L2 → L3。L1 行为守则是强制规则，执行前必须内化。**
 
