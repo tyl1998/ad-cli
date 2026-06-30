@@ -27,3 +27,4 @@ build/
 .DS_Store
 Thumbs.db
 
+.ad_cli_active_report.json

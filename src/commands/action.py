@@ -281,9 +281,19 @@ def cmd_input(adb: ADBClient, args) -> dict:
         adb, x=x, y=y, action="input-focus",
         bounds=elem.get("bounds"), target_id=elem.get("id"), target_text=elem.get("text"),
     )
+
+    # 第一次 tap 聚焦输入框
     adb.tap(x, y)
-    time.sleep(0.3)
+    time.sleep(0.5)
+
+    # 清空已有内容（全选 + 删除），避免新文本追加到旧内容后面
+    adb.clear_text()
+    time.sleep(0.2)
+
+    # 输入新文本
     adb.input_text(args.value)
+    time.sleep(0.3)
+
     try:
         page_after = adb.get_current_page()
     except Exception:
@@ -319,15 +329,14 @@ def _cmd_input_agent(adb: ADBClient | None, args, agent_port: int) -> dict:
         if selector_type and selector_value:
             response = client.input_by_selector(selector_type, selector_value, args.value)
             if not response.get("success"):
+                # 选择器输入失败，尝试选择器点击后直接输入
                 click_response = client.click_by_selector(selector_type, selector_value)
-                if not click_response.get("success"):
-                    return error(
-                        "input",
-                        "AGENT_ERROR",
-                        response.get("error", "Agent 输入失败"),
-                        hint="请先执行 ad-cli agent setup 确认 Agent 服务就绪",
-                    )
-                response = client.input_text(args.value)
+                if click_response.get("success"):
+                    response = client.input_text(args.value)
+                else:
+                    # 选择器点击也失败（可能无障碍未开启），直接输入文本
+                    # 依赖 adb tap 已聚焦输入框或用户手动聚焦
+                    response = client.input_text(args.value)
         else:
             response = client.input_text(args.value)
     except AgentError as exc:

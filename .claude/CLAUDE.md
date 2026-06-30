@@ -216,11 +216,13 @@ report/<run-id>/
 | 命令 | 定位优先级 | 等待策略 |
 |------|-----------|---------|
 | `tap` | `label(pHash缓存) > id > text > xy坐标` | 点击后等页面稳定（默认 2s 超时） |
-| `input` | `id > text` | 完成后返回 |
+| `input` | `id > text` | 完成后返回；**中文/Unicode 必须加 `--agent-port 8899`** |
 | `scroll` | `direction: up/down/left/right` | 滑动后等稳定 |
 | `back` | 无 | 等页面稳定 |
 | `keyevent <key>` | home / enter / del 等 | 等稳定 |
 
+> **中文输入规则：** `adb shell input text` 仅支持 ASCII，中文会静默失败。输入中文/日文/韩文等 Unicode 文本时必须使用 `--agent-port 8899`：`ad-cli input --id <id> --value "中文" --agent-port 8899`。Agent 不可用时先 `ad-cli agent setup`，仍失败则报错。
+>
 > **点击留证说明：** `tap` 与 `input` 在执行前会自动截图，并把点击坐标、元素 bounds、目标 id/text 一并写入报告 execution，便于在 HTML 报告中回放点击位置。
 >
 > **点击解释说明：** `tap` 支持 `--reason`，可把“为什么点这里”写进报告，帮助区分结构化点击、坐标点击和兜底点击策略。>

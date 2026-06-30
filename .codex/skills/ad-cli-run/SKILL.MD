@@ -193,6 +193,40 @@ App 自定义隐私协议弹窗：
 禁止第 3 次尝试同一动作
 ```
 
+---
+
+### 规则 D：中文/Unicode 输入 — 必须使用 Agent
+
+**`adb shell input text` 仅支持 ASCII 字符，中文、日文、韩文等 Unicode 文本会静默失败（不报错但文字未输入）。**
+
+当 `input --value` 的内容包含非 ASCII 字符时，**必须**加 `--agent-port 8899`：
+
+```bash
+# ✅ 正确：中文输入使用 Agent
+ad-cli input --id search_box --value "咖啡拿铁" --agent-port 8899
+
+# ❌ 错误：中文不用 Agent，静默失败
+ad-cli input --id search_box --value "咖啡拿铁"
+```
+
+#### 判断方法
+
+```python
+# 检测文本是否包含非 ASCII 字符
+has_non_ascii = any(ord(ch) > 0x7E or (ord(ch) < 0x20 and ch != ' ') for ch in text)
+```
+
+#### Agent 不可用时的处理
+
+```
+1. ad-cli agent status        # 检查 Agent 状态
+2. 若 http_server_ready=false → ad-cli agent setup
+3. 仍失败 → report note "Agent 不可用，无法输入中文" --level error
+4. 跳过该步骤或标记失败
+```
+
+---
+
 #### 截图辅助识别说明
 
 `dump --screenshot` 同时返回结构化元素列表和截图路径，**两者配合使用**：
@@ -559,8 +593,18 @@ ad-cli agent install --force
 
 `--reason` 写入报告"点击解释"区域，便于复盘误触和 fallback 原因。
 
-#### `input --id <id> | --text <text> --value <text>`
+#### `input --id <id> | --text <text> --value <text> [--agent-port <port>]`
 在输入框输入文字（自动先聚焦）。
+
+> **⚠️ 中文/Unicode 文本必须使用 Agent 模式输入：**
+>
+> ```bash
+> ad-cli input --id <id> --value "中文内容" --agent-port 8899
+> ```
+>
+> `adb shell input text` 仅支持 ASCII 字符，中文输入会静默失败。
+> 必须通过 Agent 的 `--agent-port 8899` 参数使用设备端 IME 输入。
+> 若 Agent 不可用，先执行 `ad-cli agent setup`，仍失败则报错并提示安装 Agent。
 
 #### `scroll --direction up|down|left|right`
 滑动页面。

@@ -25,14 +25,22 @@ class ADBClient:
     # ── 基础执行 ─────────────────────────────────────────────
 
     def run(self, *args, timeout=10) -> str:
-        """执行 adb 命令，返回 stdout 字符串，失败抛 ADBError"""
+        """执行 adb 命令，返回 stdout 字符串，失败抛 ADBError。
+
+        注意：adb shell 会将设备端 stdout/stderr 合并为一个流，
+        所以 stderr 可能为空而错误信息在 stdout 中。
+        """
         cmd = self._base_cmd + list(args)
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=timeout
             )
-            if result.returncode != 0 and result.stderr:
-                raise ADBError(result.stderr.strip())
+            if result.returncode != 0:
+                # adb shell 把 stderr 合并到 stdout，优先取 stderr，fallback 到 stdout
+                err_msg = result.stderr.strip() or result.stdout.strip()
+                if err_msg:
+                    raise ADBError(err_msg)
+                raise ADBError(f"adb 命令失败（exit code {result.returncode}）")
             return result.stdout.strip()
         except FileNotFoundError:
             raise ADBError("找不到 adb 命令，请确认已安装 Android SDK Platform Tools")
@@ -147,38 +155,81 @@ class ADBClient:
         self.shell("input", "tap", str(x), str(y))
 
     def input_text(self, text: str):
-        """输入文字（需要先 tap 聚焦输入框）"""
+        """输入文字（需要先 tap 聚焦输入框）
+
+        按优先级尝试多种方式：
+        1. adb shell input text（ASCII 文本，或部分设备支持 Unicode）
+        2. 剪贴板粘贴（cmd clipboard / service call clipboard）
+        """
         if text == "":
             return
 
-        if not self._can_use_input_text(text):
-            self._paste_text(text)
-            return
-
+        # 将空格替换为 %s（Android input 命令的空格表示）
         escaped = text.replace(" ", "%s")
-        for ch in "&<>|;$`\"'()\\":
-            escaped = escaped.replace(ch, f"\\{ch}")
+        # 单引号包裹，避免设备 shell 解释特殊字符
+        safe = escaped.replace("'", "'\\''")
+
+        # 策略 1：直接 input text（ASCII 必定成功，Unicode 在部分设备也能用）
         try:
-            self.shell("input", "text", escaped)
+            self.run("shell", f"input text '{safe}'")
+            return
         except ADBError as exc:
             if "NullPointerException" not in str(exc):
                 raise
-            self._paste_text(text)
+            # NullPointerException 说明 input text 不支持该字符，继续 fallback
 
-    def _can_use_input_text(self, text: str) -> bool:
-        """Android input text maps chars to key events, so keep it to simple ASCII."""
-        return all(ch == " " or 0x21 <= ord(ch) <= 0x7E for ch in text)
+        # 策略 2：剪贴板粘贴
+        self._paste_text(text)
 
     def _paste_text(self, text: str):
-        """输入 Unicode 文本：写入剪贴板后触发粘贴。"""
+        """通过剪贴板粘贴输入文本。按优先级尝试多种剪贴板写入方式。"""
+        safe = text.replace("'", "'\\''")
+
+        # 方法 1：cmd clipboard + PASTE 键（Android 10+，部分设备不支持）
         try:
-            self.shell("cmd", "clipboard", "set", "text", text)
-            self.shell("input", "keyevent", "279")
-        except ADBError as exc:
-            raise ADBError(
-                "无法通过 adb input text 输入该内容，剪贴板粘贴 fallback 也失败；"
-                f"原始文本可能包含设备不支持的字符。fallback 错误：{exc}"
-            )
+            self.run("shell",
+                     f"cmd clipboard set text '{safe}' && input keyevent 279")
+            return
+        except ADBError:
+            pass
+
+        # 方法 2/3：service call clipboard（更底层，需检测 Parcel 错误）
+        # service call 返回 exit 0 但 Parcel 可能包含异常，需检查输出
+        for fmt in [
+            f"service call clipboard 2 i32 1 i32 0 s16 '{safe}' i32 0",
+            f"service call clipboard 2 i32 1 s16 '{safe}'",
+        ]:
+            try:
+                output = self.run("shell", fmt)
+                # Parcel 异常时输出包含 Java 堆栈，不能算成功
+                if "Exception" not in output and "error" not in output.lower():
+                    self.shell("input", "keyevent", "279")
+                    return
+            except ADBError:
+                pass
+
+        # 方法 4：cmd clipboard + Ctrl+V 组合键
+        try:
+            self.run("shell",
+                     f"cmd clipboard set text '{safe}' "
+                     f"&& input keyevent --longpress 113 29")
+            return
+        except ADBError:
+            pass
+
+        raise ADBError(
+            "无法输入 Unicode 文本：设备不支持 adb 剪贴板写入。"
+            "建议：1) 安装 ad-cli Agent App（ad-cli agent install）"
+            " 2) 或安装 ADBKeyboard IME"
+        )
+
+    def clear_text(self):
+        """清空当前聚焦输入框的内容（全选 + 删除）"""
+        try:
+            self.shell("input", "keyevent", "278")  # KEYCODE_SELECT_ALL
+            self.shell("input", "keyevent", "67")   # KEYCODE_DEL
+        except ADBError:
+            pass  # 清空失败不阻塞后续输入
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300):
         """滑动"""
